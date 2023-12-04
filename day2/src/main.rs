@@ -4,27 +4,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input: String = std::fs::read_to_string("input")?;
 
     let available_cubes = [Cubes::Red(12), Cubes::Green(13), Cubes::Blue(14)];
-    let games: Vec<Game> = input.lines().map(|line| Game::from_str(line).unwrap_or_else(|_| panic!("Failed to parse game: {}, error", line))).collect();
-    let possible_games: Vec<&Game> = games.iter().filter(|game| game.is_possible(&available_cubes)).collect();
-    let impossible_games: Vec<&Game> = games.iter().filter(|game| !game.is_possible(&available_cubes)).collect();
-
-    for game in &possible_games {
-        println!("Possible game: {:?}", game);
-    }
-    for game in &impossible_games {
-        println!("Impossible game: {:?}", game);
-    }
-
-    let sum_of_ids: u32 = possible_games.iter().map(|game| game.id).sum();
-
-    /*
     let sum_of_ids: u32 = input
         .lines()
         .map(|line| Game::from_str(line).expect("Failed to parse game"))
-        .filter(|game| game.is_possible(available_cubes.deref()))
+        .filter(|game| game.is_possible(&available_cubes))
         .map(|game| game.id)
         .sum();
-    */
 
     println!("{}", sum_of_ids);
 
@@ -55,16 +40,18 @@ impl Game {
             }
         }
         fn enough_available(cubes: &Cubes, available_cubes: &[Cubes]) -> bool {
-            !available_cubes
-                .iter()
-                .any(|e| cube_amount_cmp(e, cubes) == std::cmp::Ordering::Greater)
+            let possible = !available_cubes.iter().any(|e| {
+                cube_amount_cmp(e, cubes) == std::cmp::Ordering::Less
+            });
+            possible
         }
 
-        !self.rounds.iter().any(|round| {
-            !round
+        let possible = !self.rounds.iter().any(|round| {
+            round
                 .iter()
                 .any(|cubes| !enough_available(cubes, available_cubes))
-        })
+        });
+        possible
     }
 }
 
@@ -111,13 +98,13 @@ impl FromStr for Cubes {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().split(' ').collect::<Vec<&str>>()[..] {
             [amount, "red"] => Ok(Cubes::Red(
-                u32::from_str(amount).unwrap_or_else(|e|panic!("parse amount of green {}", e))
+                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of green {}", e)),
             )),
             [amount, "green"] => Ok(Cubes::Green(
-                u32::from_str(amount).unwrap_or_else(|e|panic!("parse amount of green {}", e))
+                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of green {}", e)),
             )),
             [amount, "blue"] => Ok(Cubes::Blue(
-                u32::from_str(amount).unwrap_or_else(|e|panic!("parse amount of blue {}", e))
+                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of blue {}", e)),
             )),
             _ => panic!("Failed to parse {}", s),
         }
@@ -126,19 +113,24 @@ impl FromStr for Cubes {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Game, FromStr, Cubes};
+    use crate::{Cubes, FromStr, Game};
 
     fn input() -> String {
-        String::from("Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
+        String::from(
+            "Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
 Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
 Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red
 Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red
-Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green")
+Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green",
+        )
     }
 
     #[test]
     fn test_parse() {
-        let games: Vec<Game> = input().lines().map(|line| Game::from_str(line).expect("Failed to parse game")).collect();
+        let games: Vec<Game> = input()
+            .lines()
+            .map(|line| Game::from_str(line).expect("Failed to parse game"))
+            .collect();
         assert_eq!(games.len(), 5);
 
         println!("{:?}", games);
@@ -146,11 +138,14 @@ Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green")
 
     #[test]
     fn test_is_possible() {
-        let game = Game { id: 1, rounds: vec![
-            vec![Cubes::Red(6) ],
-            vec![Cubes::Green(5) ],
-            vec![Cubes::Blue(2) ],
-            ]};
+        let game = Game {
+            id: 1,
+            rounds: vec![
+                vec![Cubes::Red(6)],
+                vec![Cubes::Green(5)],
+                vec![Cubes::Blue(2)],
+            ],
+        };
         let many_available_cubes = [Cubes::Red(12), Cubes::Green(13), Cubes::Blue(14)];
         let few_available_cubes = [Cubes::Red(1), Cubes::Green(3), Cubes::Blue(1)];
 
@@ -160,7 +155,10 @@ Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green")
 
     #[test]
     fn test_is_possible2() {
-        let games: Vec<Game> = input().lines().map(|line| Game::from_str(line).expect("Failed to parse game")).collect();
+        let games: Vec<Game> = input()
+            .lines()
+            .map(|line| Game::from_str(line).expect("Failed to parse game"))
+            .collect();
         let available_cubes = [Cubes::Red(12), Cubes::Green(13), Cubes::Blue(14)];
 
         assert!(games.get(0).unwrap().is_possible(&available_cubes));
@@ -180,8 +178,5 @@ Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green")
             .map(|game| game.id)
             .sum();
         assert_eq!(sum_of_ids, 8);
-
     }
-
-
 }
