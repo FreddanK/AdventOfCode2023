@@ -1,17 +1,30 @@
-use std::{error::Error, str::FromStr};
+use std::cmp::max;
+use std::str::FromStr;
 
-fn main() -> Result<(), Box<dyn Error>> {
+use anyhow::{bail, Context, Result};
+
+fn main() -> Result<()> {
     let input: String = std::fs::read_to_string("input")?;
 
     let available_cubes = [Cubes::Red(12), Cubes::Green(13), Cubes::Blue(14)];
-    let sum_of_ids: u32 = input
+    let games: Result<Vec<Game>> = input
         .lines()
-        .map(|line| Game::from_str(line).expect("Failed to parse game"))
-        .filter(|game| game.is_possible(&available_cubes))
-        .map(|game| game.id)
-        .sum();
+        .map(|line| Game::from_str(line).with_context(|| format!("Failed to parse game: {}", line)))
+        .collect();
 
-    println!("{}", sum_of_ids);
+    if let Ok(games) = games {
+        let sum_of_ids: u32 = games
+            .iter()
+            .filter(|game| game.is_possible(&available_cubes))
+            .map(|game| game.id)
+            .sum();
+
+        println!("{}", sum_of_ids);
+
+        let sum_of_powers: u32 = games.iter().map(|game| game.power()).sum();
+
+        println!("{}", sum_of_powers);
+    }
 
     Ok(())
 }
@@ -30,61 +43,75 @@ enum Cubes {
 }
 
 impl Game {
-    fn is_possible(&self, available_cubes: &[Cubes]) -> bool {
-        fn cube_amount_cmp(a: &Cubes, b: &Cubes) -> std::cmp::Ordering {
-            match (a, b) {
-                (Cubes::Red(amount_a), Cubes::Red(amount_b)) => amount_a.cmp(amount_b),
-                (Cubes::Green(amount_a), Cubes::Green(amount_b)) => amount_a.cmp(amount_b),
-                (Cubes::Blue(amount_a), Cubes::Blue(amount_b)) => amount_a.cmp(amount_b),
-                _ => std::cmp::Ordering::Equal,
+    fn power(&self) -> u32 {
+        let red = self.max_of(&Cubes::Red(0));
+        let blue = self.max_of(&Cubes::Blue(0));
+        let green = self.max_of(&Cubes::Green(0));
+        red * blue * green
+    }
+
+    fn max_of(&self, cubes: &Cubes) -> u32 {
+        let mut ret: u32 = 0;
+        for round in self.rounds.iter() {
+            for cube in round {
+                let max = match (cube, cubes) {
+                    (Cubes::Red(a), Cubes::Red(b)) => max(a, b),
+                    (Cubes::Blue(a), Cubes::Blue(b)) => max(a, b),
+                    (Cubes::Green(a), Cubes::Green(b)) => max(a, b),
+                    (_, _) => &0,
+                };
+                if max > &ret {
+                    ret = *max;
+                }
             }
         }
-        fn enough_available(cubes: &Cubes, available_cubes: &[Cubes]) -> bool {
-            let possible = !available_cubes.iter().any(|e| {
-                cube_amount_cmp(e, cubes) == std::cmp::Ordering::Less
-            });
-            possible
-        }
+        ret
+    }
 
-        let possible = !self.rounds.iter().any(|round| {
-            round
-                .iter()
-                .any(|cubes| !enough_available(cubes, available_cubes))
-        });
-        possible
+    fn is_possible(&self, available_cubes: &[Cubes]) -> bool {
+        fn possible(game: &Game, cubes: &Cubes) -> bool {
+            match cubes {
+                Cubes::Red(available) => game.max_of(&Cubes::Red(0)) <= *available,
+                Cubes::Blue(available) => game.max_of(&Cubes::Blue(0)) <= *available,
+                Cubes::Green(available) => game.max_of(&Cubes::Green(0)) <= *available,
+            }
+        }
+        for cube in available_cubes {
+            if !possible(self, cube) {
+                return false;
+            }
+        }
+        true
     }
 }
 
 impl FromStr for Game {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Game 100: 11 red, 1 blue, 2 green; 3 red, 3 green; 1 blue, 8 red, 4 green; 5 green, 5 blue, 1 red; 2 green, 1 red, 6 blue; 2 green, 8 red, 1 blue
         // split on :
         let (game, rounds) = match s.split(':').collect::<Vec<&str>>()[..] {
             [game, rounds] => (game, rounds),
-            _ => {
-                return Err(());
-            }
+            _ => bail!("Failed to split on :"),
         };
 
         // split on space
         let game_id = match game.split(' ').collect::<Vec<&str>>()[..] {
-            ["Game", game_id] => u32::from_str(game_id).expect("Failed to parse game id"),
-            _ => {
-                return Err(());
-            }
+            ["Game", game_id] => u32::from_str(game_id).context("Failed to parse game id")?,
+            _ => bail!("Failed to split on space"),
         };
 
-        let rounds: Vec<Vec<Cubes>> = rounds
+        let rounds: Result<Vec<Vec<Cubes>>> = rounds
             .split(';')
             .map(|round| {
                 round
                     .split(',')
-                    .map(|cubes| Cubes::from_str(cubes).expect("Failed to parse cube"))
+                    .map(|cubes| Cubes::from_str(cubes).context("Failed to parse cube"))
                     .collect()
             })
             .collect();
+        let rounds = rounds?;
         Ok(Game {
             id: game_id,
             rounds,
@@ -93,20 +120,20 @@ impl FromStr for Game {
 }
 
 impl FromStr for Cubes {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().split(' ').collect::<Vec<&str>>()[..] {
             [amount, "red"] => Ok(Cubes::Red(
-                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of green {}", e)),
+                u32::from_str(amount).context("parse amount of red {}")?,
             )),
             [amount, "green"] => Ok(Cubes::Green(
-                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of green {}", e)),
+                u32::from_str(amount).context("parse amount of green {}")?,
             )),
             [amount, "blue"] => Ok(Cubes::Blue(
-                u32::from_str(amount).unwrap_or_else(|e| panic!("parse amount of blue {}", e)),
+                u32::from_str(amount).context("parse amount of blue {}")?,
             )),
-            _ => panic!("Failed to parse {}", s),
+            _ => bail!("Failed to parse {}", s),
         }
     }
 }
